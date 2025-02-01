@@ -1,0 +1,367 @@
+substitutions:
+  leds: "24"
+  vol_step: "0.1"
+
+# PINOUT
+  pin_buzzer: GPIO6
+  pin_leds: GPIO5
+  pin_lrclk_mic: GPIO1 #WS
+  pin_bclk_mic: GPIO2 #SCK
+  pin_din_mic: GPIO4
+  pin_lrclk_spk: GPIO7
+  pin_bclk_spk: GPIO8
+  pin_din_spk: GPIO9
+  pin_vol_up: "12"
+  pin_vol_down: "11"
+  pin_play: "13"
+
+
+esphome:
+  name: "8a-ball"
+  friendly_name: "8a-ball"
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: arduino
+
+
+psram:
+  mode: quad
+  speed: 80MHz
+    
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "ossjF+4Ajlf5IOeTrDnflxyU6olNM+VpPauU25xg9U0="
+  on_client_connected:
+     - media_player.volume_set: !lambda "return 0.40;"
+     - light.turn_on:
+        id: ring
+        red: 0%
+        green: 100%
+        blue: 0%
+        brightness: 100%
+     - delay: 2s
+     - script.execute: reset_ww
+     - delay: 1s
+     - light.turn_off: ring
+
+
+ota:
+  - platform: esphome
+    password: "xxxxxxxxxxxxxx"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  fast_connect: on
+
+  manual_ip:
+    static_ip: xxxxxxxxxxxxxx
+    gateway: xxxxxxxxxxxxx
+    subnet: xxxxxxxxxxxxxxxx
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "8a-Ball Fallback Hotspot"
+    password: "xxxxxxxxxxxxx"
+
+
+captive_portal:
+
+sensor:
+  - platform: homeassistant
+    id: vol_led  # number of diodes depending on the volume
+    internal: true
+    entity_id: media_player.8a_ball_glosnik
+    attribute: volume_level
+    accuracy_decimals: 0
+    filters:
+      - lambda: return x / ${vol_step} * 2 ;
+      - round: 0
+
+output:
+  - platform: ledc
+    pin: ${pin_buzzer} 
+    id: rtttl_out
+
+rtttl:
+  output: rtttl_out
+  id: my_rtttl  
+
+button:
+  - platform: restart
+    name: Reboot
+# you must allow the device to perform Home Assistant actions.
+binary_sensor:
+  - platform: gpio
+    pin: 
+      number: ${pin_vol_up}
+      mode: INPUT_PULLUP
+      inverted: false
+    name: "Vol+"
+    internal: true
+    on_press:
+       - if:
+           condition:
+             lambda: 'return id(player).volume < 1.0;'
+           then:
+             - homeassistant.action:
+                 action: media_player.volume_set
+                 data_template:
+                   entity_id: media_player.8a_ball_glosnik
+                   volume_level: "{{ state_attr('media_player.8a_ball_glosnik', 'volume_level') + ${vol_step} }}"
+             - script.execute: volume
+
+  - platform: gpio
+    pin: 
+      number: ${pin_vol_down}
+      mode: INPUT_PULLUP
+      inverted: false     
+    name: "Vol-"
+    internal: true
+    on_press:
+       - if:
+           condition:
+             lambda: 'return id(player).volume > 0.0;'
+           then:
+             - homeassistant.action:
+                 action: media_player.volume_set
+                 data_template:
+                   entity_id: media_player.8a_ball_glosnik
+                   volume_level: "{{ state_attr('media_player.8a_ball_glosnik', 'volume_level') - ${vol_step} }}"
+             - script.execute: volume
+
+  - platform: gpio
+    pin: 
+      number: ${pin_play}
+      mode: INPUT_PULLUP
+      inverted: false
+    name: "Play/Pause"
+    internal: true
+    on_press:
+      - homeassistant.action:
+          action: media_player.media_play_pause
+          data_template:
+            entity_id: media_player.8a_ball_glosnik
+
+light:
+  - platform: fastled_clockless
+    default_transition_length: 0.5s
+    id: ring
+    chipset: WS2812
+    pin: ${pin_leds}
+    num_leds: ${leds}
+    rgb_order: GRB
+    name: "Ring"
+    effects:
+      - pulse:
+          name: "Pulse"
+          transition_length: 300ms
+          update_interval: 200ms
+          min_brightness: 10%
+          max_brightness: 100%
+      - addressable_scan:
+          name: "Scan"
+          move_interval: 30ms
+          scan_width: 8
+      - addressable_color_wipe:
+          name: "Detecting"
+          colors:
+            - red: 10%
+              green: 100%
+              blue: 100%
+              num_leds: 8
+              gradient: false
+            - red: 0%
+              green: 0%
+              blue: 0%
+              num_leds: 19
+          add_led_interval: 13ms
+          reverse: true
+
+text_sensor:
+  - platform: homeassistant  
+    id: assist_satellite
+    entity_id: assist_satellite.8a_ball_assist_satellite
+    internal: true
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(assist_satellite).state == "responding";'
+          then:
+            - script.execute: talk
+            - wait_until:
+                lambda: 'return id(assist_satellite).state == "idle";'
+            - light.turn_off:  ring 
+            - script.execute: reset_ww
+
+i2s_audio:
+  - id: i2s_mic           #INMP411
+    i2s_lrclk_pin: ${pin_lrclk_mic}  #WS
+    i2s_bclk_pin: ${pin_bclk_mic}   #SCK
+  - id: i2s_out           #MAX98357A
+    i2s_lrclk_pin: ${pin_lrclk_spk}  #LRCLK
+    i2s_bclk_pin: ${pin_bclk_spk}   #BLCK
+
+
+media_player:
+  - platform: i2s_audio
+    id: player
+    name: Glosnik
+    dac_type: external
+    i2s_audio_id: i2s_out
+    mode: stereo
+    i2s_dout_pin: ${pin_din_spk} #DIN,SD
+    on_play:
+      - switch.turn_off: assist
+    on_pause:
+      - switch.turn_on: assist
+    on_idle:
+      - switch.turn_on: assist
+    on_announcement:
+      - switch.turn_off: assist
+      - script.execute: talk
+      - wait_until:
+         condition:
+             media_player.is_idle: player
+      - light.turn_off: ring
+      - media_player.stop: player
+      - switch.turn_on: assist
+
+
+microphone:
+  - platform: i2s_audio
+    id: mic
+    adc_type: external 
+    channel: left
+    bits_per_sample: 32bit
+    i2s_audio_id: i2s_mic
+    i2s_din_pin: ${pin_din_mic}   #DIN,SDIN,SD,SDATA
+    pdm: false
+
+voice_assistant:
+  id: va
+  microphone: mic
+  media_player: player
+  use_wake_word: true
+  conversation_timeout: 60s
+  noise_suppression_level: 2
+  auto_gain: 10dBFS 
+  on_listening:
+    - script.execute: detecting
+    - rtttl.play: 'two_short:d=4,o=5,b=100:16e6,16e6'  
+  on_tts_start: 
+    - script.execute: talk
+  on_stt_end:
+    then: 
+    - delay: 100ms
+    - wait_until:
+        not:
+          media_player.is_playing:
+    - script.execute: reset_ww
+    - light.turn_off: ring
+  on_tts_end:
+    then: 
+    - delay: 100ms
+    - wait_until:
+        not:
+          media_player.is_playing:
+    - script.execute: reset_ww
+    - light.turn_off: ring
+  on_error:
+    - light.turn_on:
+        id: ring
+        red: 100%
+        green: 0%
+        blue: 0%
+        brightness: 100%
+        effect: none
+    - delay: 2s
+    - script.execute: reset_ww
+    - light.turn_off: ring
+
+switch:
+  - platform: template
+    name: Use wake word
+    id: use_wake_word
+    optimistic: true
+    internal: true
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+    on_turn_on:
+      - lambda: id(va).set_use_wake_word(true);
+      - if:
+          condition:
+            not:
+              - voice_assistant.is_running
+          then:
+            - voice_assistant.start_continuous
+    on_turn_off:
+      - voice_assistant.stop
+      - lambda: id(va).set_use_wake_word(false);
+
+  - platform: template
+    id: assist
+    icon: mdi:account-tie-voice
+    name: "Asystent"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    on_turn_on: 
+      - switch.turn_on: use_wake_word
+    on_turn_off:
+      - switch.turn_off: use_wake_word
+
+
+interval:
+  - interval: 300s
+    then:
+      - if:
+          condition:
+            - switch.is_on: assist
+          then:
+           - script.execute: reset_ww
+           - light.turn_off: ring
+
+script:
+  - id: reset_ww
+    then:
+     - switch.turn_off: use_wake_word     
+     - delay: 250ms
+     - switch.turn_on: use_wake_word
+
+  - id: detecting
+    then:
+      - light.turn_on:
+         id: ring
+         red: 20%
+         green: 80%
+         blue: 100%
+         brightness: 100%
+         effect: Detecting
+
+  - id: talk
+    then:
+      - light.turn_on:
+         id: ring
+         red: 0%
+         green: 100%
+         blue: 0%
+         brightness: 100%
+         effect: pulse
+
+  - id: volume
+    then:
+      - light.addressable_set:
+         id: ring
+         range_from: 0    
+         range_to: !lambda return id(vol_led).state;
+         red: 100%
+         green: 5%
+         blue: 80%
+      - delay: 30ms
+      - light.turn_off: ring
