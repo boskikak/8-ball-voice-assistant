@@ -27,3 +27,7 @@ Voice Assistant based on ESP32 S3 N16R8 and ESP32 S3 Zero
 ![IMG_20250118_122754271_HDR](https://github.com/user-attachments/assets/d60b0794-5ca0-479c-b9bc-67d837bacbeb)
 ![IMG_20250128_191506341_HDR](https://github.com/user-attachments/assets/9252bc26-fc9a-494a-91be-11d6af392be4)
 
+
+3. Differences between the two frameworks:
+Media player in ESP-IDF play quieter and micro wake word responds less often to a key word. In Arduino framework sound is of better quality and volume but the microphone must be turned off during playing speaker. Wake word works better and wakes up more often but there are also many false ones fake wakes.
+
