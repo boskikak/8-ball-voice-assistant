@@ -1,8 +1,6 @@
 substitutions:
   leds: "28"  # number of diodes in the strip
-  vol_step: "0.1" # media player volume step
   waiting_time: "8s" # duration of listening 
-
 
 # PINOUT
   pin_buzzer: GPIO10
@@ -20,7 +18,6 @@ substitutions:
 esphome:
   name: 8-ball
   friendly_name: 8-ball
-  min_version: 2024.12.4
   platformio_options:
     board_build.flash_mode: dio
 
@@ -73,71 +70,83 @@ esp32:
       CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC: "y"
       CONFIG_MBEDTLS_SSL_PROTO_TLS1_3: "y"  # TLS1.3 support isn't enabled by default in IDF 5.1.5
 
-
-
 # Enable logging
 logger:
 
 # Enable Home Assistant API
 api:
   encryption:
-    key: "3d3RcoYaHkHmaFCrx2jgzkpIYjvhMqZAx3ASUXlKu8U="
+    key: "UHJVBy3H2lfFeoo93y5lI6PI9ol8pFy3AM8fX81rQAo="
   on_client_connected:
-     - media_player.volume_set: !lambda "return 0.60;"
      - light.turn_on:
         id: ring
         red: 0%
         green: 100%
         blue: 0%
-        brightness: 50%
-     - delay: 3s
+        brightness: 100%
+     - delay: 2s
      - light.turn_on:
         id: ring
         red: 0%
         green: 100%
         blue: 100%
-        brightness: 50%
+        brightness: 100%
      - script.execute: reset_ww
      - delay: 1s
      - light.turn_off: ring
+     - media_player.volume_set: !lambda "return 0.5;"
+     - script.execute: reset_ww
 
 ota:
   - platform: esphome
-    password: "xxxxxxxxxxxxxxxxxxxxxx"
+    password: "XXXXXXX"
 
 psram:
   mode: octal
   speed: 80MHz
-
+  
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-  manual_ip:
-    static_ip: xxxxxxxxxx
-    gateway: xxxxxxxxxxx
-    subnet: xxxxxxxxxxx
+  fast_connect: on
 
   # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
     ssid: "8-Ball Fallback Hotspot"
-    password: "xxxxxxxxxxxxxx"
+    password: "XXXXXXXX"
 
 captive_portal:
 
-external_components:
-  - source:
-      type: git
-      url: https://github.com/esphome/home-assistant-voice-pe
-      ref: dev
-    components:
-      - media_player
-      - nabu
-    refresh: 0s    
+binary_sensor:
+  - platform: gpio
+    pin: 
+      number: ${pin_vol_up}
+      mode: INPUT_PULLUP
+      inverted: false
+    name: "Vol+"
+    internal: true
+    on_press:
+      - media_player.volume_up
 
-button:
-  - platform: restart
-    name: Reboot
+  - platform: gpio
+    pin: 
+      number: ${pin_vol_down}
+      mode: INPUT_PULLUP
+      inverted: false     
+    name: "Vol-"
+    internal: true
+    on_press:
+      - media_player.volume_down
 
+  - platform: gpio
+    pin: 
+      number: ${pin_play}
+      mode: INPUT_PULLUP
+      inverted: false
+    name: "Play/Pause"
+    internal: true
+    on_press:
+      - media_player.toggle
 
 text_sensor:  # unlock this option in Home Assistant
   - platform: homeassistant
@@ -174,149 +183,9 @@ text_sensor:  # unlock this option in Home Assistant
             - light.turn_off: ring 
             - script.execute: reset_ww
 
-
-
-voice_assistant:
-  id: va
-  microphone: asr_mic
-  media_player: player
-  use_wake_word: false
-  noise_suppression_level: 2
-  auto_gain: 31dBFS 
-  on_tts_end:
-    - delay: 100ms
-    - script.execute: reset_ww
-  on_stt_end:
-    - delay: 100ms
-    - script.execute: reset_ww
-  on_error:
-    - delay: 100ms
-    - script.execute: reset_ww
-    - script.execute: error
-
-
-micro_wake_word:
-  id: mww
-  models:
-    - model: alexa
-  microphone: asr_mic
-  on_wake_word_detected:
-    - voice_assistant.start:
-        wake_word: !lambda return wake_word;
-    - delay: 100ms   
-    - rtttl.play: 'two_short:d=4,o=5,b=100:16e6,16e6'
-    - if:
-          condition:
-            lambda: return id(player)->state == media_player::MediaPlayerState::MEDIA_PLAYER_STATE_PLAYING;
-          then:
-            - media_player.pause: player
-            - wait_until:
-                 condition:
-                   lambda: 'return id(assist_satellite).state == "idle";'
-                 timeout: 5s
-            - media_player.play: player
-
-i2s_audio:
-  - id: i2s_spk
-    i2s_lrclk_pin: ${pin_lrclk_spk}
-    i2s_bclk_pin: ${pin_bclk_spk}
-  - id: i2s_mic
-    i2s_lrclk_pin: ${pin_lrclk_mic}
-    i2s_bclk_pin: ${pin_bclk_mic}
-
-microphone:
-  - platform: i2s_audio
-    id: asr_mic
-    adc_type: external
-    i2s_din_pin: ${pin_din_mic}
-    channel: left
-    i2s_audio_id: i2s_mic
-
-speaker:
-  - platform: i2s_audio
-    sample_rate: 48000
-    i2s_mode: primary
-    i2s_dout_pin: ${pin_din_spk}
-    bits_per_sample: 32bit
-    i2s_audio_id: i2s_spk
-    dac_type: external
-    channel: mono
-    timeout: never
-    buffer_duration: 100ms
-
-media_player:
-  - platform: nabu
-    id: player
-    name: glosnik
-    internal: false
-    speaker:
-    sample_rate: 48000
-    volume_increment: ${vol_step}
-    volume_min: 0.1
-    volume_max: 1
-    on_announcement:
-      - script.execute: speaking
-      - wait_until:
-         condition:
-             media_player.is_idle: player
-      - light.turn_off: ring
-      - media_player.stop: player
-      - script.execute: reset_ww
-
-switch:
-  - platform: template
-    id: assist
-    icon: mdi:account-tie-voice
-    name: "Asystent"
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_ON
-    on_turn_on: 
-       - micro_wake_word.start
-    on_turn_off:
-       - micro_wake_word.stop
-
-
-binary_sensor:
-  - platform: gpio
-    pin: 
-      number: ${pin_vol_up}
-      mode: INPUT_PULLUP
-      inverted: false
-    name: "Vol+"
-    internal: true
-    on_press:
-       - if:
-           condition:
-             lambda: 'return id(player).volume < 1.00;'
-           then:
-             - media_player.volume_up
-             - script.execute: volume
-
-  - platform: gpio
-    pin: 
-      number: ${pin_vol_down}
-      mode: INPUT_PULLUP
-      inverted: false     
-    name: "Vol-"
-    internal: true
-    on_press:
-       - if:
-           condition:
-             lambda: 'return id(player).volume > 0.0;'
-           then:
-             - media_player.volume_down
-             - script.execute: volume
-
-  - platform: gpio
-    pin: 
-      number: ${pin_play}
-      mode: INPUT_PULLUP
-      inverted: false
-    name: "Play/Pause"
-    internal: true
-    on_press:
-      - media_player.toggle
-      - script.execute: reset_ww
+button:
+  - platform: restart
+    name: Reboot
 
 output:
   - platform: ledc
@@ -330,19 +199,18 @@ light:
   - platform: esp32_rmt_led_strip
     default_transition_length: 0.5s
     id: ring
-    chipset: SK6812
+    chipset: WS2812
     pin: ${pin_leds}
     num_leds: ${leds}
     rgb_order: GRB
-    rmt_channel: 0
     name: "Ring"
     effects:
       - pulse:
           name: "Pulse"
           transition_length: 300ms
           update_interval: 250ms
-          min_brightness: 15%
-          max_brightness: 60%
+          min_brightness: 20%
+          max_brightness: 100%
       - addressable_color_wipe:
           name: "Detecting"
           colors:
@@ -358,18 +226,133 @@ light:
           add_led_interval: 12ms
           reverse: true
 
-sensor:
-  - platform: homeassistant
-    id: vol_led  # number of light diodes
-    internal: true
-    entity_id: media_player.8_ball_glosnik
-    attribute: volume_level
-    accuracy_decimals: 0
-    filters:
-      - lambda: return x / ${vol_step} * 2 ; # 2 diodes on one step volume
-      - round: 0
+
+i2s_audio:
+  - id: i2s_output
+    i2s_lrclk_pin: ${pin_lrclk_spk}
+    i2s_bclk_pin: ${pin_bclk_spk}
+  - id: i2s_input
+    i2s_lrclk_pin: ${pin_lrclk_mic}
+    i2s_bclk_pin: ${pin_bclk_mic}
+
+micro_wake_word:
+  id: mww
+  models:
+    - model: alexa
+      probability_cutoff: 0.6
+#      sliding_window_size: 4
+  vad:
+  microphone: mic
+  on_wake_word_detected:
+    - voice_assistant.start:
+        wake_word: !lambda return wake_word;
+    - script.execute: detecting
+    - delay: 100ms   
+    - rtttl.play: 'two_short:d=4,o=5,b=100:16e6,16e6'
+
+
+voice_assistant:
+  id: va
+  microphone: mic
+  media_player: player
+  use_wake_word: false
+  noise_suppression_level: 2
+  volume_multiplier: 4
+  auto_gain: 31dBFS 
+  on_tts_start:
+    - script.execute: speaking
+  on_stt_end:
+    - delay: 100ms
+    - script.execute: reset_ww
+  on_error:
+    - delay: 100ms
+    - script.execute: reset_ww
+    - script.execute: error
+
+
+media_player:
+  - platform: speaker
+    id: player
+    name: Glosnik
+    internal: False
+    task_stack_in_psram: true
+    volume_increment: 0.1
+    volume_min: 0.0
+    volume_max: 1.0
+    announcement_pipeline:
+      speaker: announcement_spk_resampling_input
+      format: FLAC     # FLAC is the least processor intensive codec
+      num_channels: 1  # Stereo audio is unnecessary for announcements
+      sample_rate: 48000
+    media_pipeline:
+      speaker: media_spk_resampling_input
+      format: FLAC     # FLAC is the least processor intensive codec
+      num_channels: 2
+      sample_rate: 48000
+    on_announcement:
+      - script.execute: speaking
+      - wait_until:
+         condition:
+             media_player.is_idle
+      - light.turn_off: ring
+      - media_player.stop
+      - script.execute: reset_ww
+
+
+speaker:
+  - platform: i2s_audio
+    id: i2s_audio_speaker
+    sample_rate: 48000
+    i2s_mode: primary
+    i2s_dout_pin: ${pin_din_spk}
+    bits_per_sample: 32bit
+    i2s_audio_id: i2s_output
+    dac_type: external
+    channel: stereo
+    timeout: never
+    buffer_duration: 100ms
+  - platform: mixer
+    id: mixer_speaker_id
+    output_speaker: i2s_audio_speaker
+    source_speakers:
+      - id: announcement_spk_mixer_input
+      - id: media_spk_mixer_input
+  - platform: resampler
+    id: media_spk_resampling_input
+    output_speaker: media_spk_mixer_input
+  - platform: resampler
+    id: announcement_spk_resampling_input
+    output_speaker: announcement_spk_mixer_input
+
+microphone:
+  - platform: i2s_audio
+    id: mic
+    adc_type: external
+    i2s_din_pin: ${pin_din_mic}
+    channel: left
+    i2s_audio_id: i2s_input
+
+switch:
+  - platform: template
+    id: assist
+    icon: mdi:account-tie-voice
+    name: "Asystent"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    on_turn_on: 
+       - micro_wake_word.start
+    on_turn_off:
+       - micro_wake_word.stop
+
+
 
 script:
+  - id: reset_ww
+    then:
+     - micro_wake_word.stop     
+     - delay: 250ms
+     - micro_wake_word.start
+
   - id: detecting
     then:
       - light.turn_on:
@@ -377,7 +360,7 @@ script:
          red: 20%
          green: 80%
          blue: 100%
-         brightness: 50%
+         brightness: 100%
          effect: Detecting
 
   - id: speaking
@@ -387,7 +370,7 @@ script:
          red: 0%
          green: 100%
          blue: 0%
-         brightness: 50%
+         brightness: 100%
          effect: Pulse
 
   - id: error
@@ -397,26 +380,7 @@ script:
          red: 100%
          green: 0%
          blue: 0%
-         brightness: 50%
+         brightness: 100%
          effect: none
       - delay: 2s
       - light.turn_off: ring
-
-
-  - id: volume
-    then:
-      - light.addressable_set:
-         id: ring
-         range_from: 0    
-         range_to: !lambda return id(vol_led).state;
-         red: 100%
-         green: 5%
-         blue: 80%
-      - delay: 30ms
-      - light.turn_off: ring
-
-  - id: reset_ww
-    then:
-     - micro_wake_word.stop     
-     - delay: 250ms
-     - micro_wake_word.start
