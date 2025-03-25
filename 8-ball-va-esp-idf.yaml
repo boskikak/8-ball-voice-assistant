@@ -76,7 +76,7 @@ logger:
 # Enable Home Assistant API
 api:
   encryption:
-    key: "UHJVBy3H2lfFeoo93y5lI6PI9ol8pFy3AM8fX81rQAo="
+    key: "xxxxxxxx"
   on_client_connected:
      - light.turn_on:
         id: ring
